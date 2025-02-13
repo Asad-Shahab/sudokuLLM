@@ -1,0 +1,12 @@
+reasoning-gym
+unsloth
+vllm
+pillow
+diffusers
+wandb
+git+https://github.com/huggingface/trl.git@e95f9fb74a3c3647b86f251b7e230ec51c64b72b 
+trl @ git+https://github.com/huggingface/trl.git@e95f9fb74a3c3647b86f251b7e230ec51c64b72b
+numpy
+datasets
+torch
+transformers
