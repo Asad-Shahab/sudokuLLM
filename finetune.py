@@ -190,6 +190,31 @@ def setup_training_args():
 
 def train_model(model, tokenizer, dataset, training_args):
     """Initialize trainer and start training."""
+    import signal
+    import sys
+    import os
+
+    # Create checkpoints directory if it doesn't exist
+    os.makedirs("checkpoints", exist_ok=True)
+
+    def signal_handler(sig, frame):
+        print("\n\nInterrupt received! Saving current model state...")
+        try:
+            # Save current state
+            checkpoint_path = "checkpoints/interrupted_checkpoint"
+            model.save_lora(checkpoint_path)
+            print(f"Model saved to {checkpoint_path}")
+            # Also save to main location
+            model.save_lora("grpo_saved_lora")
+            print("Model also saved to grpo_saved_lora")
+        except Exception as e:
+            print(f"Error saving model: {e}")
+        print("You can safely exit now (Ctrl+C again) or wait for proper shutdown")
+        sys.exit(0)
+
+    # Register the signal handler
+    signal.signal(signal.SIGINT, signal_handler)
+
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
@@ -218,11 +243,19 @@ def train_model(model, tokenizer, dataset, training_args):
         }
     )
     
-    trainer.train()
-    wandb.finish()
-    
-    # Save the trained model
-    model.save_lora("grpo_saved_lora")
+    try:
+        trainer.train()
+    except Exception as e:
+        print(f"\nTraining interrupted by error: {e}")
+        print("Attempting to save current state...")
+        model.save_lora("grpo_saved_lora")
+        raise e
+    finally:
+        wandb.finish()
+        # Save the final trained model
+        print("\nSaving final model state...")
+        model.save_lora("grpo_saved_lora")
+        print("Training complete or stopped. Model saved.")
 
 def test_model(model, tokenizer, use_lora=True):
     """Test the model with a sample puzzle."""
@@ -264,10 +297,10 @@ def main():
     
     # Load dataset
     dataset = load_sudoku_dataset("sudoku_dataset/train.json")
-    
+  
     # Setup model and tokenizer
-    model, tokenizer = setup_model()   
-
+    model, tokenizer = setup_model()
+    
     # Run initial test before training
     print("\n=== Pre-training Test ===")
     print("Testing base model before any training:")
