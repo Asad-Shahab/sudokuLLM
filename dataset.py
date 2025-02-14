@@ -102,8 +102,8 @@ def save_dataset(size: int = 10000, train_split: float = 0.8, output_dir: str = 
             break
         batch = generate_dataset(
             size=current_batch_size,
-            min_empty=8,
-            max_empty=12,
+            min_empty=1,
+            max_empty=3,
             seed=42 + i  # Different seed for each batch
         )
         dataset.extend(batch)
