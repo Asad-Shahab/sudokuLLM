@@ -1,0 +1,18 @@
+Download CUDA 12.6 but without the nightly stuff
+
+install pip 
+python -m pip --version
+
+curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+
+python get-pip.py
+
+python -m pip --version
+
+
+git clone https://github.com/Asad-Shahab/sudoku_finetuning.git
+cd sudoku_finetuning
+
+pip install -r requirements.txt
+
+python finetune.py
