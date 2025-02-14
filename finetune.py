@@ -179,7 +179,7 @@ def setup_training_args():
         num_generations=8, # Decrease if out of memory
         max_prompt_length=256,
         max_completion_length=1024,
-        # num_train_epochs = 1, # Set to 1 for a full training run
+        num_train_epochs = 1, # Set to 1 for a full training run
         max_steps=250,
         save_steps=250,
         max_grad_norm=0.1,

@@ -44,7 +44,7 @@ def format_answer(puzzle: List[List[int]], solution: List[List[int]]) -> str:
 
     return f"<reasoning>\n{reasoning}\n</reasoning>\n<answer>\n{solution_str}\n</answer>"
 
-def generate_dataset(size: int = 1000, min_empty: int = 4, max_empty: int = 12, seed: int = 42) -> List[Dict[str, Any]]:
+def generate_dataset(size: int = 1000, min_empty: int = 1, max_empty: int = 3, seed: int = 42) -> List[Dict[str, Any]]:
     """Generate a formatted dataset of mini Sudoku puzzles."""
     # Generate raw puzzles using reasoning_gym
     raw_data = reasoning_gym.create_dataset(

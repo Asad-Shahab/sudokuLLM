@@ -1,4 +1,5 @@
 reasoning-gym
+tqdm
 unsloth
 vllm
 pillow
