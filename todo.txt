@@ -9,6 +9,13 @@ python get-pip.py
 
 python -m pip --version
 
+uninstall torch and resintall:
+pip uninstall torch torchvision torch audio
+
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+Insatll triton:
+pip install https://huggingface.co/madbuda/triton-windows-builds/resolve/main/triton-3.0.0-cp311-cp311-win_amd64.whl
 
 git clone https://github.com/Asad-Shahab/sudoku_finetuning.git
 cd sudoku_finetuning
@@ -16,3 +23,5 @@ cd sudoku_finetuning
 pip install -r requirements.txt
 
 python finetune.py
+
+Unin

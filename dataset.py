@@ -21,30 +21,19 @@ def format_solution_grid(grid: List[List[int]]) -> str:
     """Convert a solution grid into a string representation."""
     return '\n'.join(' '.join(str(x) for x in row) for row in grid)
 
-def generate_reasoning(puzzle: List[List[int]], solution: List[List[int]]) -> str:
-    """Generate reasoning steps for solving the puzzle."""
-    reasoning = []
-
-    # Initial state
-    reasoning.append("Starting with the given puzzle:")
-    reasoning.append(format_puzzle_grid(puzzle))
-
-    # Basic solving techniques explanation
-    reasoning.append("\nSolving process:")
-    reasoning.append("1. Scanning rows, columns, and 2x2 boxes for single candidates")
-    reasoning.append("2. Looking for numbers that can only go in one position")
-    reasoning.append("3. Using elimination to find valid placements")
-
-    return '\n'.join(reasoning)
+def generate_reasoning() -> str:
+    """Generate empty reasoning as per the requested format."""
+    # Return empty reasoning
+    return "  "
 
 def format_answer(puzzle: List[List[int]], solution: List[List[int]]) -> str:
-    """Format the answer in the required XML structure."""
-    reasoning = generate_reasoning(puzzle, solution)
+    """Format the answer in the required XML structure with empty reasoning."""
+    reasoning = generate_reasoning()
     solution_str = format_solution_grid(solution)
 
-    return f"<reasoning>\n{reasoning}\n</reasoning>\n<answer>\n{solution_str}\n</answer>"
+    return f"<reasoning>{reasoning}</reasoning>\n<answer>\n{solution_str}\n</answer>"
 
-def generate_dataset(size: int = 1000, min_empty: int = 1, max_empty: int = 3, seed: int = 42) -> List[Dict[str, Any]]:
+def generate_dataset(size: int = 200, min_empty: int = 1, max_empty: int = 3, seed: int = 12) -> List[Dict[str, Any]]:
     """Generate a formatted dataset of mini Sudoku puzzles."""
     # Generate raw puzzles using reasoning_gym
     raw_data = reasoning_gym.create_dataset(
@@ -72,13 +61,14 @@ def generate_dataset(size: int = 1000, min_empty: int = 1, max_empty: int = 3, s
     return formatted_data
 
 # Dataset generation and saving
-def save_dataset(size: int = 10000, train_split: float = 0.8, output_dir: str = "sudoku_dataset"):
+def save_dataset(size: int = 200, train_split: float = 0.8, batch_size: int = 50, output_dir: str = "sudoku_dataset"):
     """
     Generate and save a large dataset, split into train and validation sets.
 
     Args:
         size: Total number of puzzles to generate
         train_split: Fraction of data to use for training
+        batch_size: Number of puzzles to generate per batch
         output_dir: Directory to save the dataset
     """
     import os
@@ -92,8 +82,6 @@ def save_dataset(size: int = 10000, train_split: float = 0.8, output_dir: str = 
     print(f"Generating {size} puzzles...")
     dataset = []
 
-    # Generate in batches to show progress
-    batch_size = 1000
     num_batches = size // batch_size + (1 if size % batch_size > 0 else 0)
 
     for i in tqdm(range(num_batches)):
@@ -104,7 +92,7 @@ def save_dataset(size: int = 10000, train_split: float = 0.8, output_dir: str = 
             size=current_batch_size,
             min_empty=1,
             max_empty=3,
-            seed=42 + i  # Different seed for each batch
+            seed=12 + i  # Different seed for each batch
         )
         dataset.extend(batch)
 
@@ -126,9 +114,14 @@ def save_dataset(size: int = 10000, train_split: float = 0.8, output_dir: str = 
     print(f"Validation puzzles: {len(val_data)}")
 
 if __name__ == "__main__":
-    # Example: Generate a large dataset
+    # Only change these two values in the main method as needed.
+    total_size = 1000    # Total puzzles to generate
+    train_split = 0.9    # Train/validation split
+    batch_size = 50      # Number of puzzles per batch
+
     save_dataset(
-        size=5000,  # Total puzzles to generate
-        train_split=0.8,  # 80% training, 20% validation
-        output_dir="sudoku_dataset"  # Output directory
+        size=total_size,
+        train_split=train_split,
+        batch_size=batch_size,
+        output_dir="sudoku_dataset"
     )

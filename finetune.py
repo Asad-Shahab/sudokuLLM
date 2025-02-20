@@ -176,12 +176,12 @@ def setup_training_args():
         fp16=not is_bfloat16_supported(),
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        num_generations=8, # Decrease if out of memory
+        num_generations=4, # Decrease if out of memory
         max_prompt_length=256,
         max_completion_length=1024,
         num_train_epochs = 1, # Set to 1 for a full training run
-        max_steps=250,
-        save_steps=250,
+        max_steps=150,
+        save_steps=150,
         max_grad_norm=0.1,
         report_to="wandb",
         run_name="sudoku-grpo-training",
