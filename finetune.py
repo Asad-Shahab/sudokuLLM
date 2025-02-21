@@ -143,7 +143,7 @@ def setup_model(max_seq_length: int = 2048, lora_rank: int = 64):
         load_in_4bit=True, # False for LoRA 16bit
         fast_inference=True, # Enable vLLM fast inference
         max_lora_rank=lora_rank,
-        gpu_memory_utilization=0.7, # Reduce if out of memory
+        gpu_memory_utilization=0.5, # Reduce if out of memory
     )
 
     model = FastLanguageModel.get_peft_model(
@@ -231,7 +231,7 @@ def train_model(model, tokenizer, dataset, training_args):
     
     wandb.init(
         project="sudoku-grpo",
-        name="training-run-1",
+        name="training-run-csug-1",
         config={
             "model_name": "Qwen/Qwen2.5-3B-Instruct",
             "max_seq_length": 2048,
@@ -268,7 +268,7 @@ def test_model(model, tokenizer, use_lora=True):
     ...
     </answer>
     """
-    test_puzzle = "Solve this 4x4 Mini Sudoku puzzle:\n_ 3 1 2\n2 _ _ 4\n3 _ _ 1\n_ _ 4 _"
+    test_puzzle = "Solve this 4x4 Mini Sudoku puzzle:\n1 3 4 2\n2 4 3 1\n3 2 _ 4\n_ 1 2 3"
     
     text = tokenizer.apply_chat_template([
         {"role": "system", "content": system_prompt},

@@ -21,7 +21,16 @@ git clone https://github.com/Asad-Shahab/sudoku_finetuning.git
 cd sudoku_finetuning
 
 pip install -r requirements.txt
+pip --cache-dir pipcache/ install -r sudoku_finetuning/requirements.txt
 
 python finetune.py
 
-Unin
+
+tmux new -s session_name
+
+to detach: Ctrl + b  then  d
+
+reconnect: tmux attach -t session_name
+
+kill: tmux kill-session -t session_name
+
