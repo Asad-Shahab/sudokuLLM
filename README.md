@@ -97,10 +97,6 @@ python pretrain_test.py
 ```
 
 
-## License
-
-[Your license information here]
-
 ## Acknowledgments
 
 - This project uses the [unsloth](https://github.com/unsloth/unsloth) library for efficient finetuning
