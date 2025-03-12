@@ -12,7 +12,7 @@ This repository contains code to finetune a language model (Qwen/Qwen2.5-3B-Inst
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/your-username/sudoku_finetuning.git
+git clone https://github.com/Asad-Shahab/sudoku_finetuning.git
 cd sudoku_finetuning
 pip install -r requirements.txt
 ```
