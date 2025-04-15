@@ -2,11 +2,19 @@
 pip install -r requirements.txt
 pip --cache-dir pipcache/ install -r sudoku_finetuning/requirements.txt
 
-tmux new -s session_name
 
-to detach: Ctrl + b  then  d
 
-reconnect: tmux attach -t session_name
+module swap slurm slurm/24.05.0
+smux-devel -p h100 --gres=gpu:1 -t 5-00:00:00 --mem=50gb
 
-kill: tmux kill-session -t session_name
+ssh -X -t bhg<code>
+tmux attach-session -t <sessionid>
 
+module load cuda
+module load bluehive/2.5
+
+export PIP_CACHE_DIR=$(pwd)/.pipcache
+to check: pip config list | grep cache-dir
+
+pip unsloth install vllm==0.7.3 wandb
+export VLLM_USE_V1=0
