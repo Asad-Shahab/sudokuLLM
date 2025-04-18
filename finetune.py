@@ -231,7 +231,7 @@ def train_model(model, tokenizer, dataset, training_args):
     
     wandb.init(
         project="sudoku-grpo",
-        name="training-run-csug-1",
+        name="training-run-csug-1", # change this
         config={
             "model_name": "Qwen/Qwen2.5-3B-Instruct",
             "max_seq_length": 2048,
