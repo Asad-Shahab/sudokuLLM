@@ -16,5 +16,5 @@ module load bluehive/2.5
 export PIP_CACHE_DIR=$(pwd)/.pipcache
 to check: pip config list | grep cache-dir
 
-pip unsloth install vllm==0.7.3 wandb
+pip install unsloth vllm==0.7.3 wandb
 export VLLM_USE_V1=0
