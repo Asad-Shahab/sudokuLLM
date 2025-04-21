@@ -1,2 +1,4 @@
 myenv/
 pipcache/
+venv/
+.pipcache/
