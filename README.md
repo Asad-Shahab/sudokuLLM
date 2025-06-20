@@ -1,104 +1,163 @@
-# Sudoku Finetuning
+# Mini Sudoku Solver - Fine-tuning with GRPO
 
-This repository contains code to finetune a language model (Qwen/Qwen2.5-3B-Instruct) to solve 4x4 Mini Sudoku puzzles with GRPO (Generative Reinforcement Policy Optimization). The project demonstrates how to train a model to:
+This repository contains code to fine-tune Google's Gemma-3-4B-IT language model to solve 4x4 Mini Sudoku puzzles using GRPO (Generative Reinforcement Policy Optimization). The project demonstrates how to train a model to:
 
-1. Follow a specific XML output format
-2. Apply logical reasoning to solve Sudoku puzzles
-3. Output valid 4x4 Sudoku solutions
+1. Follow a specific output format with reasoning and solution tags
+2. Apply logical reasoning to solve Sudoku puzzles step-by-step
+3. Output valid 4x4 Sudoku solutions with high accuracy
 
+## 🚀 Setup and Installation
 
-## Setup and Installation
+### Prerequisites
 
-Clone the repository and install dependencies:
+This project uses [Unsloth](https://github.com/unslothai/unsloth?tab=readme-ov-file#-install-unsloth) for efficient fine-tuning.
+
+### Clone Repository
 
 ```bash
-git clone https://github.com/Asad-Shahab/sudoku_finetuning.git
-cd sudoku_finetuning
-pip install -r requirements.txt
+git clone https://github.com/Asad-Shahab/sudokuLLM.git
+cd sudokuLLM
 ```
 
-## Dataset Generation
+### Additional Dependencies
 
-The project uses a custom dataset of 4x4 Mini Sudoku puzzles. You can generate the dataset with:
+Since most dependencies are handled by the Unsloth conda installation, you only need to install a few additional packages:
+
+```bash
+pip install wandb  # Optional: for experiment tracking
+```
+
+## 📊 Dataset
+
+This project uses the [asadshahab/mini-sudoku](https://huggingface.co/datasets/asadshahab/mini-sudoku) dataset from Hugging Face. This dataset was generated using the included `dataset.py` script and contains:
+- Pre-generated 4x4 Mini Sudoku puzzles
+- Puzzles with varying difficulty (different numbers of empty cells)
+- Training and validation splits
+
+The dataset format uses underscores (`_`) for empty cells:
+```
+2 _ 3 1
+1 3 _ 4
+3 1 4 2
+_ _ 1 _
+```
+
+### Generate Your Own Dataset
+
+You can generate a custom dataset using the same `dataset.py` script that was used to create the HuggingFace dataset:
 
 ```bash
 python dataset.py
 ```
 
 This will:
-- Generate 1000 unique 4x4 Mini Sudoku puzzles
-- Split them into training (90%) and validation (10%) sets
-- Save the formatted data in the `sudoku_dataset` directory
+- Generate unique 4x4 Mini Sudoku puzzles using the `reasoning_gym` library
+- Create puzzles with customizable difficulty (empty cells)
+- Split into training (90%) and validation (10%) sets
+- Save to the `data` directory in JSON format
 
-To verify the dataset's integrity:
+To customize the dataset generation, modify these parameters in `dataset.py`:
+- `total_size`: Number of puzzles to generate (default: 2000)
+- `train_split`: Training/validation split ratio (default: 0.9)
+- `min_empty`/`max_empty`: Range of empty cells per puzzle (default: 8-12)
 
-```bash
-python verify_dataset.py
+## 🎯 Model and Training Approach
+
+### Model
+- **Base Model**: `unsloth/gemma-3-4b-it` (Google's Gemma 3 4B Instruct)
+- **Training Method**: Full fine-tuning (with LoRA option available)
+- **Optimization**: GRPO with multiple reward functions
+
+### Output Format
+The model is trained to output solutions in this format:
+```
+<start_working_out>
+[Step-by-step reasoning here]
+<end_working_out>
+<SOLUTION>
+3 1 4 2
+2 4 1 3
+1 2 3 4
+4 3 2 1
+</SOLUTION>
 ```
 
-## Dataset Format
+### Reward Functions
+The training uses four reward functions to ensure high-quality outputs:
 
-Each example in the dataset follows this structure:
+1. **Format Match** (2.0 points): Checks for correct reasoning and solution tags
+2. **Correctness** (5.0 points): Validates the Sudoku solution
+3. **Valid Numbers** (0.5 points): Ensures all numbers are 1-4
+4. **Grid Format** (1.0 points): Verifies proper 4x4 grid structure
 
-```json
-{
-  "prompt": [
-    {
-      "role": "system",
-      "content": "\nRespond in the following format:\n<reasoning>\n...\n</reasoning>\n<answer>\n...\n</answer>\n"
-    },
-    {
-      "role": "user",
-      "content": "Solve this 4x4 Mini Sudoku puzzle:\n3 1 4 2\n_ 4 1 3\n1 2 _ _\n4 3 2 1"
-    }
-  ],
-  "answer": "<reasoning>  </reasoning>\n<answer>\n3 1 4 2\n2 4 1 3\n1 2 3 4\n4 3 2 1\n</answer>"
-}
-```
+**Total Maximum Score**: 8.5 points
 
-## Finetuning
+## 🏋️ Training
 
-The finetuning process uses GRPO with several reward functions to train the model:
+### Fine-tuning Configuration
+- **Learning Rate**: 5e-6 with cosine scheduler
+- **Batch Size**: 4 per device with gradient accumulation of 4
+- **Epochs**: 4
+- **Optimizer**: AdamW (fused)
+- **Training Mode**: Full fine-tuning (LoRA adapters available but commented out)
 
-1. `correctness_reward_func`: Rewards correct Sudoku solutions
-2. `int_reward_func`: Checks if all numbers in the solution are valid (1-4)
-3. `strict_format_reward_func` and `soft_format_reward_func`: Verify XML formatting
-4. `xmlcount_reward_func`: Rewards proper XML tag placement
-
-To run the finetuning:
+### Run Training
 
 ```bash
 python finetune.py
 ```
 
-For long training sessions, you can use tmux:
+You'll be prompted for a Weights & Biases API key (optional for experiment tracking). The training process will:
+1. Load the Gemma model
+2. Process the dataset with the appropriate prompt format
+3. Train using GRPO with the reward functions
+4. Save the model to `mini-sudoku-solver/`
 
-```bash
-tmux new -s sudoku_training
-python finetune.py
-# Detach with Ctrl+b, then d
-# Reconnect later with: tmux attach -t sudoku_training
-```
+## 🔮 Inference
 
-## Inference
-
-To run inference with the finetuned model:
+### Interactive Solver
 
 ```bash
 python inference.py
 ```
 
-This will load the trained model and allow you to enter 4x4 Sudoku puzzles for the model to solve interactively.
+The inference script offers multiple modes:
+1. **Batch test**: Test on pre-defined puzzles
+2. **Interactive mode**: Enter custom puzzles
+3. **Single test**: Quick test with one puzzle
+4. **Debug mode**: Analyze model outputs
+5. **Test with known answer**: Compare against correct solutions
+6. **Score pasted output**: Evaluate any model output
 
-To test the base model performance (without finetuning):
+## 📈 Performance
 
-```bash
-python pretrain_test.py
-```
+*Performance metrics and evaluation results will be added after comprehensive testing.*
 
+## 🛠️ Customization
 
-## Acknowledgments
+### Using LoRA Instead of Full Fine-tuning
 
-- This project uses the [unsloth](https://github.com/unsloth/unsloth) library for efficient finetuning
-- TRL (Transformer Reinforcement Learning) library for GRPO implementation
+To use LoRA adapters (for lower memory usage), modify `finetune.py`:
+1. Set `full_finetuning=False` in model loading
+2. Uncomment the `FastModel.get_peft_model` section
+3. Adjust LoRA parameters (r, alpha, dropout) as needed
+
+### Adjusting Training Parameters
+
+Key parameters in `finetune.py`:
+- `max_seq_length`: Maximum sequence length (default: 1024)
+- `num_train_epochs`: Number of training epochs
+- `per_device_train_batch_size`: Batch size per GPU
+- `learning_rate`: Initial learning rate
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
+
+## 🙏 Acknowledgments
+
+- [Unsloth](https://github.com/unslothai/unsloth) for efficient LLM fine-tuning
+- Google for the Gemma model family
+- Hugging Face for hosting the dataset and model hub
+- TRL library for GRPO implementation
 - Weights & Biases for experiment tracking
