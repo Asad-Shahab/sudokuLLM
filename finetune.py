@@ -1,98 +1,123 @@
+from unsloth import FastModel
 import os
-import json
 import re
 import numpy as np
-from datasets import Dataset
-import torch
 import wandb
-from unsloth import FastLanguageModel, PatchFastRL, is_bfloat16_supported
+import torch
+from datasets import load_dataset
 from trl import GRPOConfig, GRPOTrainer
-from vllm import SamplingParams
+from transformers import TextStreamer
 
-# Patch GRPO before all functions
-PatchFastRL("GRPO", FastLanguageModel)
+# Ask for wandb API key in terminal
+wandb_api_key = input("Enter your Weights & Biases API key (press Enter to skip wandb integration): ")
+if wandb_api_key:
+    os.environ["WANDB_API_KEY"] = wandb_api_key
+    use_wandb = True
+    wandb.init(project="mini-sudoku-solver", name="gemma-mini-sudoku-3")
+else:
+    print("Skipping wandb integration")
+    use_wandb = False
 
-def load_sudoku_dataset(file_path: str) -> Dataset:
-    """Load Sudoku dataset from JSON and convert to HuggingFace Dataset format."""
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-
-    formatted_data = {
-        'prompt': [item['prompt'] for item in data],
-        'answer': [item['answer'] for item in data]
-    }
-
-    return Dataset.from_dict(formatted_data)
-
-def extract_grid_from_answer(answer_text: str) -> list[list[int]]:
-    """Extract the grid from the answer section of the response."""
-    match = re.search(r'<answer>\s*(.*?)\s*</answer>', answer_text, re.DOTALL)
-    if not match:
+# Helper functions for Sudoku validation
+def extract_grid_from_answer(text):
+    """Extract a 4x4 grid from the model's answer text."""
+    if text is None:
         return None
-
-    grid_str = match.group(1)
+        
     try:
-        grid = [[int(num) for num in row.split()] for row in grid_str.strip().split('\n')]
-        return grid
-    except:
+        # Find numeric grid (assumes format like "1 2 3 4\n2 3 4 1\n...")
+        lines = []
+        for line in text.strip().split('\n'):
+            # Filter only lines with numbers
+            if re.search(r'[1-4]', line):
+                # Extract numbers from the line
+                numbers = [int(n) for n in re.findall(r'[1-4]', line)]
+                if len(numbers) == 4:  # Ensure we have exactly 4 numbers
+                    lines.append(numbers)
+        
+        # Check if we have a complete 4x4 grid
+        if len(lines) == 4 and all(len(line) == 4 for line in lines):
+            return lines
+        return None
+    except Exception:
         return None
 
-def is_valid_sudoku_solution(grid: list[list[int]]) -> bool:
-    """Check if a 4x4 grid is a valid Sudoku solution."""
-    if not grid or len(grid) != 4 or any(len(row) != 4 for row in grid):
+def is_valid_sudoku_solution(grid):
+    """Check if a 4x4 Sudoku solution is valid."""
+    if grid is None or len(grid) != 4 or any(len(row) != 4 for row in grid):
         return False
-
-    grid = np.array(grid)
-
-    # Check all numbers are 1-4
-    if not all(num in [1, 2, 3, 4] for num in grid.flatten()):
-        return False
-
-    # Check rows and columns
-    for i in range(4):
-        if len(set(grid[i, :])) != 4 or len(set(grid[:, i])) != 4:
+    
+    # Check rows
+    for row in grid:
+        if sorted(row) != [1, 2, 3, 4]:
             return False
-
-    # Check 2x2 boxes
-    for i in range(0, 4, 2):
-        for j in range(0, 4, 2):
-            if len(set(grid[i:i+2, j:j+2].flatten())) != 4:
+    
+    # Check columns
+    for col in range(4):
+        column = [grid[row][col] for row in range(4)]
+        if sorted(column) != [1, 2, 3, 4]:
+            return False
+    
+    # Check 2x2 sub-grids
+    for box_row in range(0, 4, 2):
+        for box_col in range(0, 4, 2):
+            sub_grid = []
+            for r in range(box_row, box_row + 2):
+                for c in range(box_col, box_col + 2):
+                    sub_grid.append(grid[r][c])
+            if sorted(sub_grid) != [1, 2, 3, 4]:
                 return False
-
+    
     return True
 
-def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[float]:
-    """Reward function that checks if the Sudoku solution is correct."""
+def parse_sudoku_question(question):
+    """Parse the input sudoku question format."""
+    # Only handle underscore replacement since that's what the dataset uses
+    question = question.replace('_', ' ')
+    return question
+
+# Define reward functions
+def correctness_reward_func(prompts, completions, answer, **kwargs):
+    """Reward function that checks if the Sudoku solution is correct. Max: 5.0"""
     responses = [completion[0]['content'] for completion in completions]
     rewards = []
-
+    
     for response, correct_answer in zip(responses, answer):
-        predicted_grid = extract_grid_from_answer(response)
+        solution_text = extract_solution(response)
+        if solution_text is None:
+            rewards.append(0.0)
+            continue
+            
+        predicted_grid = extract_grid_from_answer(solution_text)
         correct_grid = extract_grid_from_answer(correct_answer)
-
+        
         if predicted_grid is None or correct_grid is None:
             rewards.append(0.0)
             continue
-
-        if (predicted_grid == correct_grid and
-            is_valid_sudoku_solution(predicted_grid)):
-            rewards.append(2.0)
+            
+        if predicted_grid == correct_grid and is_valid_sudoku_solution(predicted_grid):
+            rewards.append(5.0)
         else:
             rewards.append(0.0)
-
+            
     return rewards
 
-def int_reward_func(completions, **kwargs) -> list[float]:
-    """Reward function that checks if all numbers in the solution are 1-4."""
+def int_reward_func(completions, **kwargs):
+    """Reward function that checks if all numbers in the solution are 1-4. Max: 0.5"""
     responses = [completion[0]['content'] for completion in completions]
     rewards = []
-
+    
     for response in responses:
-        grid = extract_grid_from_answer(response)
+        solution_text = extract_solution(response)
+        if solution_text is None:
+            rewards.append(0.0)
+            continue
+            
+        grid = extract_grid_from_answer(solution_text)
         if grid is None:
             rewards.append(0.0)
             continue
-
+            
         try:
             if all(all(num in [1, 2, 3, 4] for num in row) for row in grid):
                 rewards.append(0.5)
@@ -100,234 +125,281 @@ def int_reward_func(completions, **kwargs) -> list[float]:
                 rewards.append(0.0)
         except:
             rewards.append(0.0)
-
+            
     return rewards
 
-def strict_format_reward_func(completions, **kwargs) -> list[float]:
-    """Reward function that checks if the completion has the correct XML format."""
-    pattern = r"^<reasoning>\n.*?\n</reasoning>\n<answer>\n.*?\n</answer>\n$"
-    responses = [completion[0]["content"] for completion in completions]
-    return [0.5 if re.match(pattern, r, re.DOTALL) else 0.0 for r in responses]
-
-def soft_format_reward_func(completions, **kwargs) -> list[float]:
-    """More lenient reward function for XML format checking."""
-    pattern = r"<reasoning>.*?</reasoning>\s*<answer>.*?</answer>"
-    responses = [completion[0]["content"] for completion in completions]
-    return [0.5 if re.match(pattern, r, re.DOTALL) else 0.0 for r in responses]
-
-def count_xml(text) -> float:
-    """Count reward for XML tag presence and placement."""
-    count = 0.0
-    if text.count("<reasoning>\n") == 1:
-        count += 0.125
-    if text.count("\n</reasoning>\n") == 1:
-        count += 0.125
-    if text.count("\n<answer>\n") == 1:
-        count += 0.125
-        count -= len(text.split("\n</answer>\n")[-1])*0.001
-    if text.count("\n</answer>") == 1:
-        count += 0.125
-        count -= (len(text.split("\n</answer>")[-1]) - 1)*0.001
-    return count
-
-def xmlcount_reward_func(completions, **kwargs) -> list[float]:
-    """Reward function for XML formatting details."""
-    contents = [completion[0]["content"] for completion in completions]
-    return [count_xml(c) for c in contents]
-
-def setup_model(max_seq_length: int = 2048, lora_rank: int = 64):
-    """Initialize and setup the model with given parameters."""
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name="Qwen/Qwen2.5-3B-Instruct",
-        max_seq_length=max_seq_length,
-        load_in_4bit=True, # False for LoRA 16bit
-        fast_inference=True, # Enable vLLM fast inference
-        max_lora_rank=lora_rank,
-        gpu_memory_utilization=0.5, # Reduce if out of memory
-    )
-
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=lora_rank,
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
-        ],
-        lora_alpha=lora_rank,
-        use_gradient_checkpointing="unsloth",
-        random_state=3407,
-    )
-
-    return model, tokenizer
-
-def setup_training_args():
-    """Setup and return GRPO training configuration."""
-    return GRPOConfig(
-        use_vllm=True,
-        learning_rate=5e-6,
-        adam_beta1=0.9,
-        adam_beta2=0.99,
-        weight_decay=0.1,
-        warmup_ratio=0.1,
-        lr_scheduler_type="cosine",
-        optim="adamw_8bit",
-        logging_steps=1,
-        bf16=is_bfloat16_supported(),
-        fp16=not is_bfloat16_supported(),
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
-        num_generations=4, # Decrease if out of memory
-        max_prompt_length=256,
-        max_completion_length=1024,
-        num_train_epochs = 1, # Set to 1 for a full training run
-        max_steps=150,
-        save_steps=150,
-        max_grad_norm=0.1,
-        report_to="wandb",
-        run_name="sudoku-grpo-training",
-        output_dir="outputs",
-    )
-
-def train_model(model, tokenizer, dataset, training_args):
-    """Initialize trainer and start training."""
-    import signal
-    import sys
-    import os
-
-    # Create checkpoints directory if it doesn't exist
-    os.makedirs("checkpoints", exist_ok=True)
-
-    def signal_handler(sig, frame):
-        print("\n\nInterrupt received! Saving current model state...")
-        try:
-            # Save current state
-            checkpoint_path = "checkpoints/interrupted_checkpoint"
-            model.save_lora(checkpoint_path)
-            print(f"Model saved to {checkpoint_path}")
-            # Also save to main location
-            model.save_lora("grpo_saved_lora")
-            print("Model also saved to grpo_saved_lora")
-        except Exception as e:
-            print(f"Error saving model: {e}")
-        print("You can safely exit now (Ctrl+C again) or wait for proper shutdown")
-        sys.exit(0)
-
-    # Register the signal handler
-    signal.signal(signal.SIGINT, signal_handler)
-
-    trainer = GRPOTrainer(
-        model=model,
-        processing_class=tokenizer,
-        reward_funcs=[
-            xmlcount_reward_func,
-            soft_format_reward_func,
-            strict_format_reward_func,
-            int_reward_func,
-            correctness_reward_func,
-        ],
-        args=training_args,
-        train_dataset=dataset,
-    )
+def grid_format_reward_func(completions, **kwargs):
+    """Reward function for checking the format of the output. Max: 1.0"""
+    responses = [completion[0]['content'] for completion in completions]
+    rewards = []
     
-    wandb.init(
-        project="sudoku-grpo",
-        name="training-run-csug-1", # change this
-        config={
-            "model_name": "Qwen/Qwen2.5-3B-Instruct",
-            "max_seq_length": 2048,
-            "lora_rank": 64,
-            "batch_size": training_args.per_device_train_batch_size,
-            "learning_rate": training_args.learning_rate,
-            "num_generations": training_args.num_generations,
-            "gradient_accumulation_steps": training_args.gradient_accumulation_steps,
-        }
-    )
-    
-    try:
-        trainer.train()
-    except Exception as e:
-        print(f"\nTraining interrupted by error: {e}")
-        print("Attempting to save current state...")
-        model.save_lora("grpo_saved_lora")
-        raise e
-    finally:
-        wandb.finish()
-        # Save the final trained model
-        print("\nSaving final model state...")
-        model.save_lora("grpo_saved_lora")
-        print("Training complete or stopped. Model saved.")
-
-def test_model(model, tokenizer, use_lora=True):
-    """Test the model with a sample puzzle."""
-    system_prompt = """
-    Respond in the following format:
-    <reasoning>
-    ...
-    </reasoning>
-    <answer>
-    ...
-    </answer>
-    """
-    test_puzzle = "Solve this 4x4 Mini Sudoku puzzle:\n1 3 4 2\n2 4 3 1\n3 2 _ 4\n_ 1 2 3"
-    
-    text = tokenizer.apply_chat_template([
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": test_puzzle}
-    ], tokenize=False, add_generation_prompt=True)
-
-    sampling_params = SamplingParams(
-        temperature=0.8,
-        top_p=0.95,
-        max_tokens=2048,
-    )
-    
-    lora_request = model.load_lora("grpo_saved_lora") if use_lora else None
-    
-    output = model.fast_generate(
-        text,
-        sampling_params=sampling_params,
-        lora_request=lora_request,
-    )[0].outputs[0].text
-    
-    return output
-
-def main():
-    # Set up wandb
-    wandb.login()
-    
-    # Load dataset
-    dataset = load_sudoku_dataset("sudoku_dataset/train.json")
-  
-    # Setup model and tokenizer
-    model, tokenizer = setup_model()
-    
-    # Run initial test before training
-    print("\n=== Pre-training Test ===")
-    print("Testing base model before any training:")
-    pretraining_result = test_model(model, tokenizer, use_lora=False)
-    print(pretraining_result)
-
-    # Setup training arguments
-    training_args = setup_training_args()
-    
-    print("\n=== Starting Training ===")
-    # Train the model
-    train_model(model, tokenizer, dataset, training_args)
-
-    print("\n=== Post-training Tests ===")
-    print("Testing model without LoRA (should be similar to pre-training):")
-    print(test_model(model, tokenizer, use_lora=False))
-    
-    print("\nTesting model with trained LoRA weights:")
-    print(test_model(model, tokenizer, use_lora=True))
+    for response in responses:
+        solution_text = extract_solution(response)
+        if solution_text is None:
+            rewards.append(0.0)
+            continue
+            
+        # Check if the solution has a grid-like structure
+        lines = solution_text.strip().split('\n')
+        valid_lines = 0
         
-    # Save results to file for comparison
-    with open("model_comparison_results.txt", "w") as f:
-        f.write("=== Pre-training Output ===\n")
-        f.write(pretraining_result)
-        f.write("\n\n=== Post-training Output (with LoRA) ===\n")
-        f.write(test_model(model, tokenizer, use_lora=True))
+        for line in lines:
+            # Check if line contains 4 numbers (1-4) with possible spaces
+            if re.match(r'^\s*[1-4](\s+[1-4]){3}\s*$', line):
+                valid_lines += 1
+                
+        # Give reward based on how many valid lines we found
+        if valid_lines == 4:
+            rewards.append(1.0)
+        elif valid_lines > 0:
+            rewards.append(valid_lines / 8.0)  # Partial reward
+        else:
+            rewards.append(0.0)
+            
+    return rewards
+
+# Create a regex format to match the reasoning and solution sections
+reasoning_start = "<start_working_out>"
+reasoning_end = "<end_working_out>"
+solution_start = "<SOLUTION>"
+solution_end = "</SOLUTION>"
+
+# Function to check if the output follows the format
+def match_format_exactly(completions, **kwargs):
+    """Check if output follows the required format. Max: 2.0"""
+    scores = []
+    for completion in completions:
+        score = 0
+        response = completion[0]["content"]
+        # Clean up any end_of_turn markers
+        response = response.replace("<end_of_turn>", "")
+        # Try to find solution tags
+        match_format = re.compile(
+            rf"^[\s]{{0,}}"
+            rf"{reasoning_start}.+?{reasoning_end}.*?"
+            rf"{solution_start}(.+?){solution_end}"
+            rf"[\s]*"
+            rf"(?:<end_of_turn>)?"
+            rf"[\s]*$",
+            flags=re.MULTILINE | re.DOTALL
+        )
+        if match_format.search(response) is not None:
+            score += 2.0
+        scores.append(score)
+    return scores
+
+# Function to extract the solution for evaluation
+def extract_solution(text):
+    reasoning_start = "<start_working_out>"
+    reasoning_end = "<end_working_out>"
+    solution_start = "<SOLUTION>"
+    solution_end = "</SOLUTION>"
+    # Clean up any end_of_turn markers
+    text = text.replace("<end_of_turn>", "")
+    # Try to find solution tags
+    match_format = re.compile(
+        rf"{solution_start}(.+?){solution_end}",
+        flags=re.MULTILINE | re.DOTALL
+    )
+    match = match_format.search(text)
+    if match:
+        return match.group(1).strip()
+    # Fallback: look for a 4x4 grid pattern at the end of the text
+    lines = text.strip().split('\n')
+    potential_grid_lines = []
+    for line in reversed(lines):  # Start from the end
+        if re.match(r'^\s*[1-4](\s+[1-4]){3}\s*$', line.strip()):
+            potential_grid_lines.insert(0, line.strip())
+            if len(potential_grid_lines) == 4:
+                return '\n'.join(potential_grid_lines)
+        elif potential_grid_lines:
+            break
+    return None
+
+# Define system prompt
+system_prompt = f"""You are a mini-Sudoku solving assistant. 
+You will be given a 4x4 Sudoku puzzle where some cells are filled and others are empty (shown as spaces).
+The goal is to fill each empty cell with a number from 1 to 4 such that:
+- Each row contains all numbers from 1 to 4 exactly once
+- Each column contains all numbers from 1 to 4 exactly once
+- Each 2x2 sub-grid contains all numbers from 1 to 4 exactly once
+
+Think through the solution step by step.
+Place your reasoning between {reasoning_start} and {reasoning_end}.
+Then, provide your complete 4x4 solution grid between {solution_start} and {solution_end}
+
+The solution should be formatted as a 4x4 grid with spaces between numbers and newlines between rows.
+For example:
+{solution_start}
+1 2 3 4
+3 4 1 2
+2 1 4 3
+4 3 2 1
+{solution_end}
+"""
+
+# Load and preprocess the dataset
+print("Loading dataset...")
+train_dataset = load_dataset("asadshahab/mini-sudoku", split="train")
+val_dataset = load_dataset("asadshahab/mini-sudoku", split="validation")
+print(f"Training dataset loaded with {len(train_dataset)} examples")
+print(f"Validation dataset loaded with {len(val_dataset)} examples")
+
+# Check the first example to understand structure
+print("\nExample question:", train_dataset[0]["question"])
+print("Example answer:", train_dataset[0]["answer"])
+
+# Preprocess dataset
+def preprocess_dataset(example):
+    return {
+        "prompt": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": parse_sudoku_question(example["question"])},
+        ],
+        "answer": example["answer"],
+    }
+
+processed_train_dataset = train_dataset.map(preprocess_dataset)
+processed_val_dataset = val_dataset.map(preprocess_dataset)
+
+# Model loading and training
+print("\nLoading model...")
+max_seq_length = 1024
+
+# Check if GPU is available
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
+
+# Load model using Unsloth with full finetuning enabled
+model, tokenizer = FastModel.from_pretrained(
+    model_name="unsloth/gemma-3-4b-it",
+    max_seq_length=max_seq_length,
+    dtype=torch.bfloat16,
+    load_in_4bit=False,
+    load_in_8bit=False,
+    full_finetuning=True,
+)
+
+# DO NOT add LoRA adapters when doing full fine-tuning!
+# Comment out or remove the FastModel.get_peft_model section
+
+# If using LoRA (full_finetuning=False), uncomment this:
+# model = FastModel.get_peft_model(
+#     model,
+#     finetune_vision_layers=False,
+#     finetune_language_layers=True,
+#     finetune_attention_modules=True,
+#     finetune_mlp_modules=True,
+#     r=8,
+#     lora_alpha=8,
+#     lora_dropout=0,
+#     bias="none",
+#     random_state=3407,
+# )
+
+max_prompt_length = 256
+training_args = GRPOConfig(
+    learning_rate=5e-6,
+    adam_beta1=0.9,
+    adam_beta2=0.99,
+    weight_decay=0.1,
+    warmup_ratio=0.1,
+    lr_scheduler_type="cosine",
+    optim="adamw_torch_fused",
+    logging_steps=10,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    num_generations=6,
+    max_prompt_length=max_prompt_length,
+    max_completion_length=max_seq_length - max_prompt_length,
+    num_train_epochs=4,
+    save_steps=100,
+    report_to="wandb" if use_wandb else "none",
+    output_dir="outputs",
+)
 
 
-if __name__ == "__main__":
-    main()
+# Initialize GRPO Trainer
+trainer = GRPOTrainer(
+    model=model,
+    tokenizer=tokenizer,
+    reward_funcs=[
+        match_format_exactly,       # 2.0 max - format check
+        correctness_reward_func,    # 5.0 max - correctness check
+        int_reward_func,            # 0.5 max - valid numbers check
+        grid_format_reward_func,    # 1.0 max - grid format check
+    ],
+    args=training_args,
+    train_dataset=processed_train_dataset,
+)
+
+# Train the model
+print("\nStarting training...")
+trainer.train()
+
+# Save the model
+print("\nSaving model...")
+model.save_pretrained("mini-sudoku-solver")
+tokenizer.save_pretrained("mini-sudoku-solver")
+
+# Test the model with an example from the dataset format
+print("\nTesting model with an example...")
+test_puzzle = "2 _ 3 1\n1 3 _ 4\n3 1 4 2\n_ _ 1 _"
+messages = [
+    {"role": "system", "content": system_prompt},
+    {"role": "user", "content": parse_sudoku_question(test_puzzle)},
+]
+
+text = tokenizer.apply_chat_template(
+    messages,
+    add_generation_prompt=True,
+    tokenize=False,
+)
+
+print(f"\nInput puzzle:\n{test_puzzle}")
+print("\nModel output:")
+
+outputs = model.generate(
+    **tokenizer(text, return_tensors="pt").to(device),
+    max_new_tokens=1024,
+    temperature=0.7,
+    top_p=0.95,
+    top_k=64,
+    streamer=TextStreamer(tokenizer, skip_prompt=True),
+)
+
+# Extract and validate the solution
+generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# More robust extraction
+user_message = parse_sudoku_question(test_puzzle)
+if user_message in generated_text:
+    model_output = generated_text.split(user_message)[-1]
+else:
+    model_output = generated_text
+
+# Clean up any end_of_turn markers
+model_output = model_output.replace("<end_of_turn>", "")
+
+solution = extract_solution(model_output)
+if solution:
+    grid = extract_grid_from_answer(solution)
+    if grid and is_valid_sudoku_solution(grid):
+        print("\n✓ Generated solution is valid!")
+    else:
+        print("\n✗ Generated solution is invalid or incomplete.")
+        print(f"Debug - Grid extracted: {grid}")
+else:
+    print("\n✗ Could not extract solution from output.")
+    print(f"Debug - Last 500 chars of output:\n{model_output[-500:]}")
+
+print("\nTraining completed and model saved to 'mini-sudoku-solver' directory!")
+print("\nTo upload to HuggingFace, uncomment and run the following code:")
+print("""
+from huggingface_hub import login
+login()  # Enter your token when prompted
+
+# Push the model to HuggingFace Hub
+model.push_to_hub("YOUR_USERNAME/mini-sudoku-solver")
+tokenizer.push_to_hub("YOUR_USERNAME/mini-sudoku-solver")
+""")
