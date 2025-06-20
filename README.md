@@ -10,7 +10,15 @@ This repository contains code to fine-tune Google's Gemma-3-4B-IT language model
 
 ### Prerequisites
 
-This project uses [Unsloth](https://github.com/unslothai/unsloth?tab=readme-ov-file#-install-unsloth) for efficient fine-tuning.
+This project uses [Unsloth](https://github.com/unslothai/unsloth) for efficient fine-tuning.
+
+**Important**: Please visit the [Unsloth installation guide](https://github.com/unslothai/unsloth?tab=readme-ov-file#-install-unsloth) to install according to your system requirements. They provide multiple installation options:
+- Conda
+- Pip
+- Different CUDA versions
+- CPU-only installations
+
+The installation method depends on your GPU, CUDA version, and system configuration.
 
 ### Clone Repository
 
