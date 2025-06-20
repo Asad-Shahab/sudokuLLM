@@ -2,17 +2,6 @@ import reasoning_gym
 from typing import List, Dict, Any
 import numpy as np
 
-# The system prompt that enforces XML format
-SYSTEM_PROMPT = """
-Respond in the following format:
-<reasoning>
-...
-</reasoning>
-<answer>
-...
-</answer>
-"""
-
 def format_puzzle_grid(grid: List[List[int]]) -> str:
     """Convert a 2D grid into a formatted string representation."""
     return '\n'.join(' '.join(str(x if x != 0 else '_') for x in row) for row in grid)
@@ -21,19 +10,7 @@ def format_solution_grid(grid: List[List[int]]) -> str:
     """Convert a solution grid into a string representation."""
     return '\n'.join(' '.join(str(x) for x in row) for row in grid)
 
-def generate_reasoning() -> str:
-    """Generate empty reasoning as per the requested format."""
-    # Return empty reasoning
-    return "  "
-
-def format_answer(puzzle: List[List[int]], solution: List[List[int]]) -> str:
-    """Format the answer in the required XML structure with empty reasoning."""
-    reasoning = generate_reasoning()
-    solution_str = format_solution_grid(solution)
-
-    return f"<reasoning>{reasoning}</reasoning>\n<answer>\n{solution_str}\n</answer>"
-
-def generate_dataset(size: int = 200, min_empty: int = 1, max_empty: int = 3, seed: int = 12) -> List[Dict[str, Any]]:
+def generate_dataset(size: int = 200, min_empty: int = 3, max_empty: int = 8, seed: int = 42) -> List[Dict[str, Any]]:
     """Generate a formatted dataset of mini Sudoku puzzles."""
     # Generate raw puzzles using reasoning_gym
     raw_data = reasoning_gym.create_dataset(
@@ -50,11 +27,8 @@ def generate_dataset(size: int = 200, min_empty: int = 1, max_empty: int = 3, se
         solution = item['metadata']['solution']
 
         formatted_item = {
-            'prompt': [
-                {'role': 'system', 'content': SYSTEM_PROMPT},
-                {'role': 'user', 'content': f"Solve this 4x4 Mini Sudoku puzzle:\n{format_puzzle_grid(puzzle)}"}
-            ],
-            'answer': format_answer(puzzle, solution)
+            'question': format_puzzle_grid(puzzle),
+            'answer': format_solution_grid(solution)
         }
         formatted_data.append(formatted_item)
 
@@ -90,9 +64,9 @@ def save_dataset(size: int = 200, train_split: float = 0.8, batch_size: int = 50
             break
         batch = generate_dataset(
             size=current_batch_size,
-            min_empty=1,
-            max_empty=3,
-            seed=12 + i  # Different seed for each batch
+            min_empty=8,
+            max_empty=12,
+            seed=42 + i * 1000 
         )
         dataset.extend(batch)
 
@@ -114,8 +88,8 @@ def save_dataset(size: int = 200, train_split: float = 0.8, batch_size: int = 50
     print(f"Validation puzzles: {len(val_data)}")
 
 if __name__ == "__main__":
-    # Only change these two values in the main method as needed.
-    total_size = 1000    # Total puzzles to generate
+    # Only change these as needed.
+    total_size = 2000    # Total puzzles to generate
     train_split = 0.9    # Train/validation split
     batch_size = 50      # Number of puzzles per batch
 
@@ -123,5 +97,5 @@ if __name__ == "__main__":
         size=total_size,
         train_split=train_split,
         batch_size=batch_size,
-        output_dir="sudoku_dataset"
+        output_dir="data"
     )
